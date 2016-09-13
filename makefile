@@ -1,7 +1,5 @@
-all: sshell.c sshell2.c
+all: sshell.c
 	gcc sshell.c -o sshell -std=c99
-	gcc sshell2.c -o sshell2 -std=c99
 
-debug: sshell.c sshell2.c
+debug: sshell.c
 	gcc -DDEBUG -g sshell.c -o debug-sshell -std=c99
-	gcc -DDEBUG -g sshell2.c -o debug-sshell2 -std=c99
