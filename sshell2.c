@@ -88,7 +88,7 @@ int parse_delim_pipe(char *buffer, char** args,
     /* cp is a pointer to buff_args */ 
     int num_proc = 0;
     /* Creates pointers to each of the arguments */
-    for(cp=buf_args; (*cp=strsep(&wbuf, "|")) != NULL ;){
+    for(cp=buf_args; (*cp=(char*)strsep(&wbuf, "|")) != NULL ;){
         ++num_proc;
         if ((*cp != '\0') && (++cp >= &buf_args[args_size]))
             break; 
@@ -192,7 +192,8 @@ int main(int argc, char *argv[], char *envp[]){
                  */
             /*
              * We also need to make sure that we have execinfo[i].str_args buffer
-             * ready.
+             * ready. It's in the definition for struct exec_info now--it has a size of
+             * ARGS_SIZE or so.
              */
             parse_args(it_str, execinfo[i].str_args, ARR_SIZE, &execinfo[i].num_args);
 #ifdef DEBUG
@@ -202,7 +203,7 @@ int main(int argc, char *argv[], char *envp[]){
 
 #ifdef DEBUG
         /*
-         * Print out the exec() number, then the arguments involved.
+         * DEBUG: Print out the exec() number, then the arguments involved.
          */
         size_t it;
         for (it = 0; it < num_exec; ++it) {
@@ -221,25 +222,66 @@ int main(int argc, char *argv[], char *envp[]){
         if (nargs==0) continue; /* Nothing entered so prompt again */
         if (!strcmp(args[0], "exit" )) exit(0);       
 
+        /*
+         *
+         * BEGIN EXECUTION OF PROCESSES
+         *
+         */
+        /* okay! */
+        /* ALGORITHM:
+         * 1. Setup in/out pipes.
+         * 2. Duplicate pipes onto stdin and out as needed.
+         * 3. Setup process A (where A is our current process)
+         * 4. Execute process A
+         * 5. Wait until A is done, then clean it up.
+         * 6. Do such that the next process B (where
+         *    B is the next process in line) is setup where
+         *    it will be A on the next iteration
+         * 7. Iterate
+         */
+
+        /* So the way I have it coded is to keep one "global"
+         * pipe_in pipe. This is because the out-going pipe will
+         * need to become the in-going pipe when we take the
+         * output of process A into the pipe which needs to go into B,
+         * where B will replace the "position" of A on the next
+         * iteration.
+         */
+        int pipe_in[2];
+        pipe(pipe_in);
+        /* For the first iteration, the first program will
+         * take input from stdin.
+         */
+        dup2(0, pipe_in[1]);
+        /* proc_it is the loop iterator variable. */
         size_t proc_it;
         for (proc_it = 0; proc_it < num_exec; ++proc_it) {
-            int pipe_in[2];
             pid_t pid;
-    
-            pipe(pipe_in);
+            /* Intialize the out-going pipe. */ 
+            int pipe_out[2];
+            pipe(pipe_out);
 
-            if (proc_it != 0) { /* If it's the first command,
-                                 * take input from stdin as
-                                 * needed
-                                 */
-               close(pipe_in[1]); /* Close pipe_in.in */
+            /* If it's the first command, take input from stdin
+             * as needed. Otherwise, close the input side of the in-going pipe.
+             */
+            if (proc_it != 0) {
+                /* Close pipe_in.in */
+                close(pipe_in[1]);
             }
 
-
+            /* Fork into parent, child. */
             pid = fork();
-
-
             if (pid == 0){  /* The child */
+                /* Close the out side of the 
+                /* out-going pipe.
+                 */
+                close(pipe_out[0]);
+
+                /* Duplicate pipe_in.out onto A.stdin
+                 *           A.stdout onto pipe_out.in
+                 *           A.stderr onto pipe_out.in
+                 */
+
                 /* Run the program using the correct
                  * <proc_it>-th exec() info.
                  */
@@ -250,13 +292,18 @@ int main(int argc, char *argv[], char *envp[]){
                 }
             } else { /* The parent */
 
-#ifdef DEBUG
-            printf("Waiting for child (%d)\n", pid);
-#endif
-            pid = wait(ret_status);
-#ifdef DEBUG
-            printf("Child (%d) finished\n", pid);
-#endif
+                #ifdef DEBUG
+                    printf("Waiting for child (%d)\n", pid);
+                #endif
+
+
+
+                pid = wait(ret_status);
+
+
+                #ifdef DEBUG
+                    printf("Child (%d) finished\n", pid);
+                #endif
             } 
 
         }
