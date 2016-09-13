@@ -18,62 +18,60 @@
 // #define DEBUG 1  /* In case you want debug messages */
 
 
-/* Return an array of pointers to the start of tokens
- * in the buffer array.
- */
-int parse_delim_pipe(char *buffer, char** args, 
-                size_t args_size, size_t *nargs)
+void parse_delim_pipe(char *buffer, char** args, 
+                      size_t args_size, size_t *nargs)
 {
-    /* The return value buffer */
-    char* buf_args[args_size]; /* You need C99.  Note that args_size
+    char *buf_args[args_size]; /* You need C99.  Note that args_size
                                   is normally a constant. */
+    char **cp;  /* This is used as a pointer into the string array */
+    char *wbuf;  /* String variable that has the command line */
+    size_t i, j; 
+    
+    wbuf=buffer;
+    buf_args[0]=buffer; 
+    args[0] =buffer;
 
-    /* The first argument token is always starts at the start. */
-    buf_args[0] = buffer;
+    for (cp = buf_args; (*cp = strsep(&wbuf, "|")) != NULL; ) {
+        if ((*cp != '\0') && (++cp >= &buf_args[args_size]))
+            break;
+    }
 
-    int num_proc = 1;
-    size_t i;
-    for(i = 1; *buffer != '\0'; ++buffer) {
-        if (*buffer == '|') {
-            *buffer = '\0';
-            buf_args[i++] = buffer+1;
+    for (j = i = 0; buf_args[i] != NULL; i++) {
+        if (strlen(buf_args[i]) > 0) {
+            args[j++] = buf_args[i];
         }
     }
 
-    /* Copy buf_args into args */
-    memcpy((void*)args, (void*)buf_args, args_size);
-
-    *nargs = i;
-    return i;
+    *nargs = j;
+    args[j] = NULL;
 }
 
-
-int parse_args(char *buffer, char** args, 
+void parse_args(char *buffer, char** args, 
                 size_t args_size, size_t *nargs)
 {
-    /* The return value buffer */
-    char* buf_args[args_size]; /* You need C99.  Note that args_size
+    char *buf_args[args_size]; /* You need C99.  Note that args_size
                                   is normally a constant. */
+    char **cp;  /* This is used as a pointer into the string array */
+    char *wbuf;  /* String variable that has the command line */
+    size_t i, j; 
+    
+    wbuf=buffer;
+    buf_args[0]=buffer; 
+    args[0] =buffer;
 
-    /* The first argument token is always starts at the start. */
-    buf_args[0] = buffer;
+    for (cp = buf_args; (*cp = strsep(&wbuf, " \n\t")) != NULL; ) {
+        if ((*cp != '\0') && (++cp >= &buf_args[args_size]))
+            break;
+    }
 
-    int num_proc = 1;
-    size_t i;
-    for(i = 1; *buffer != '\0'; ++buffer) {
-        if (*buffer == ' ' ||
-            *buffer == '\n' ||
-            *buffer == '\t') {
-            *buffer = '\0';
-            buf_args[i++] = buffer+1;
+    for (j = i = 0; buf_args[i] != NULL; i++) {
+        if (strlen(buf_args[i]) > 0) {
+            args[j++] = buf_args[i];
         }
     }
 
-    /* Copy buf_args into args */
-    memcpy((void*)args, (void*)buf_args, args_size);
-
-    *nargs = i;
-    return i;
+    *nargs = j;
+    args[j] = NULL;
 }
 
 /*
@@ -113,7 +111,8 @@ int main(int argc, char *argv[], char *envp[]){
         /* Clear the buffers. */
         memset((void*)&args, '\0', sizeof(char*)*ARR_SIZE);
 
-        int num_exec = parse_delim_pipe(buffer, args, ARR_SIZE, &nargs); 
+        parse_delim_pipe(buffer, args, ARR_SIZE, &nargs);
+        size_t num_exec = nargs;
 
         struct exec_info execinfo[num_exec];
        
@@ -199,48 +198,48 @@ int main(int argc, char *argv[], char *envp[]){
          */
         int pipe_in[2];
         pipe(pipe_in);
-        /* For the first iteration, the first program will
-         * take input from stdin.
-         */
-        dup2(0, pipe_in[1]);
         /* proc_it is the loop iterator variable. */
         size_t proc_it;
         for (proc_it = 0; proc_it < num_exec; ++proc_it) {
             pid_t pid;
+
             /* Intialize the out-going pipe. */ 
             int pipe_out[2];
             pipe(pipe_out);
-
-            /* If it's the first command, take input from stdin
-             * as needed. Otherwise, close the input side of the in-going pipe.
-             */
-            if (proc_it != 0) {
-                /* Close pipe_in.in */
-                close(pipe_in[1]);
-            }
-
             /* Fork into parent, child. */
             pid = fork();
             if (pid == 0){  /* The child */
 
-                /* Close stdin, stdout, stderr. */
-                close(0);
-                close(1);
-                close(2);
                 /* Duplicate pipe_in.out onto A.stdin
                  *           A.stdout onto pipe_out.in
                  *           A.stderr onto pipe_out.in
                  */
-                dup2(pipe_in[0], 0);
+                close(0);
+                close(1);
+                close(2);
+                if (proc_it != 0)  {
+                    dup2(pipe_in[0], 0);
+                }
                 dup2(pipe_out[1], 1);
                 dup2(pipe_out[1], 2);
+
                 /* Close the out side of the 
-                /* out-going pipe. Since the child is not
+                 * out-going pipe. Since the child is not
                  * going to read from its own output.
                  */
-                close(pipe_out[0]);
+
                 /* Run the program using the correct
                  * <proc_it>-th exec() info.
+                 */
+                /*
+                 * 
+                 *
+                 *
+                 *
+                 * THIS KEEPS CRASHING EVEN THOUGH IT'S BEING CALLED
+                 * WITH THE EXACT SAME PARAMETERS IN MEMORY
+                 * WITH THE SAME EXACT FUNCTION
+                 * THE ONLY DIFFERENCE IS THAT IT'S HELD IN THE STRUCT.
                  */
                 if (execvp(execinfo[proc_it].str_args[0],
                            execinfo[proc_it].str_args)) {
@@ -279,8 +278,8 @@ int main(int argc, char *argv[], char *envp[]){
                 /* Then, copy out-going pipe info to
                  * in-going pipe info.
                  */
-                pipe_in[0] = pipe_out[0];
-                pipe_in[1] = pipe_out[1];
+                dup2(pipe_out[0], pipe_in[0]);
+                dup2(pipe_out[1], pipe_in[1]);
                 /* Iterate. */
             } 
         }
